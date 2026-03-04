@@ -1,0 +1,16 @@
+services:
+  clip-worker:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - GOOGLE_SERVICE_ACCOUNT_FILE=/secrets/service_account.json
+      - OUTPUT_BASE=/clips
+      - WORKDIR=/work
+    volumes:
+      - ./secrets:/secrets:ro
+      - ~/clip-worker-output:/clips
+      - clip_worker_tmp:/work
+
+volumes:
+  clip_worker_tmp:
