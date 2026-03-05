@@ -1,0 +1,122 @@
+# -----------------------------------------------------------------------------
+# 1. Secret — Google service account credentials
+#    Before applying, base64-encode your JSON file and paste it below:
+#      base64 -i secrets/service_account.json | tr -d '\n'
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clip-worker-secrets
+  namespace: default
+type: Opaque
+data:
+  # Replace <BASE64_ENCODED_JSON> with the output of:
+  #   base64 -i secrets/service_account.json | tr -d '\n'
+  service_account.json: <BASE64_ENCODED_JSON>
+
+---
+# -----------------------------------------------------------------------------
+# 2. PersistentVolumeClaim — output clips storage (/clips)
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clip-worker-output
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# -----------------------------------------------------------------------------
+# 3. Deployment
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clip-worker
+  namespace: default
+  labels:
+    app: clip-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clip-worker
+  template:
+    metadata:
+      labels:
+        app: clip-worker
+    spec:
+      containers:
+        - name: clip-worker
+          image: marekojames/clip-worker:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GOOGLE_SERVICE_ACCOUNT_FILE
+              value: /secrets/service_account.json
+            - name: OUTPUT_BASE
+              value: /clips
+            - name: WORKDIR
+              value: /work
+          volumeMounts:
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+            - name: output
+              mountPath: /clips
+            - name: work
+              mountPath: /work
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2
+              memory: 2Gi
+      volumes:
+        - name: secrets
+          secret:
+            secretName: clip-worker-secrets
+        - name: output
+          persistentVolumeClaim:
+            claimName: clip-worker-output
+        - name: work
+          emptyDir: {}
+
+---
+# -----------------------------------------------------------------------------
+# 4. Service — ClusterIP (expose via your gateway)
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: clip-worker
+  namespace: default
+  labels:
+    app: clip-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: clip-worker
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
